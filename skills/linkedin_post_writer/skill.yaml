@@ -1,0 +1,14 @@
+name: linkedin_post_writer
+description: >
+  Draft a professional LinkedIn post from a brief topic description,
+  key talking points, and tone preference.
+version: "0.1.0"
+author: SingleClaw DMN Contributors
+input_type: application/json-post-brief
+output_type: text/linkedin-post
+risk_level: low
+tags:
+  - content
+  - social-media
+  - linkedin
+  - writing

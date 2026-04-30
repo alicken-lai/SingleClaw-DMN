@@ -1,0 +1,13 @@
+name: procurement_comparison
+description: >
+  Compare multiple vendor quotes or procurement options and produce a
+  structured comparison table with a recommendation.
+version: "0.1.0"
+author: SingleClaw DMN Contributors
+input_type: application/json-vendor-quotes
+output_type: text/markdown-comparison
+risk_level: low
+tags:
+  - procurement
+  - finance
+  - decision-support
