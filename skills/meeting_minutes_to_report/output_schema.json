@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MeetingReportOutput",
+  "type": "object",
+  "required": ["report_markdown"],
+  "properties": {
+    "report_markdown": {
+      "type": "string",
+      "description": "The full meeting report formatted in Markdown."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Short executive summary (2–3 sentences)."
+    },
+    "action_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["task", "owner"],
+        "properties": {
+          "task":     { "type": "string" },
+          "owner":    { "type": "string" },
+          "due_date": { "type": "string", "format": "date" }
+        }
+      },
+      "description": "Extracted action items."
+    }
+  }
+}

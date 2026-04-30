@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LinkedInPostInput",
+  "type": "object",
+  "required": ["topic"],
+  "properties": {
+    "topic": {
+      "type": "string",
+      "description": "What the LinkedIn post is about."
+    },
+    "talking_points": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Key ideas or facts to include in the post."
+    },
+    "tone": {
+      "type": "string",
+      "enum": ["professional", "conversational", "inspirational", "technical", "casual"],
+      "default": "professional",
+      "description": "Desired tone of the post."
+    },
+    "cta": {
+      "type": "string",
+      "description": "Optional call-to-action (e.g. 'Try it out and let me know what you think')."
+    },
+    "max_words": {
+      "type": "integer",
+      "minimum": 50,
+      "maximum": 500,
+      "default": 200,
+      "description": "Maximum word count for the post."
+    }
+  },
+  "additionalProperties": false
+}

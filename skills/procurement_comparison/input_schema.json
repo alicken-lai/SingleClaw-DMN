@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProcurementComparisonInput",
+  "type": "object",
+  "required": ["project_name", "vendors"],
+  "properties": {
+    "project_name": {
+      "type": "string",
+      "description": "Name of the procurement project."
+    },
+    "criteria": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Evaluation criteria (e.g. price, delivery_days, quality_score)."
+    },
+    "vendors": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name":  { "type": "string" },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "number" }
+          ]
+        }
+      },
+      "description": "List of vendor objects with per-criterion values."
+    }
+  }
+}

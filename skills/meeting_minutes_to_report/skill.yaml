@@ -1,0 +1,13 @@
+name: meeting_minutes_to_report
+description: >
+  Convert raw meeting minutes (notes, action items, decisions) into a
+  structured professional report in Markdown format.
+version: "0.1.0"
+author: SingleClaw DMN Contributors
+input_type: text/meeting-minutes
+output_type: text/markdown-report
+risk_level: low
+tags:
+  - productivity
+  - meetings
+  - reporting

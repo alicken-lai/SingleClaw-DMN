@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProcurementComparisonOutput",
+  "type": "object",
+  "required": ["report_markdown", "recommended_vendor"],
+  "properties": {
+    "report_markdown": {
+      "type": "string",
+      "description": "Full comparison report in Markdown."
+    },
+    "recommended_vendor": {
+      "type": "string",
+      "description": "Name of the recommended vendor."
+    },
+    "justification": {
+      "type": "string",
+      "description": "Short justification for the recommendation."
+    }
+  }
+}
