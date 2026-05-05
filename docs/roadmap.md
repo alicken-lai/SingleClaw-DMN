@@ -39,15 +39,16 @@
 
 ## v0.3 – Memory Intelligence
 
+**Status:** ✅ Complete
+
 **Theme:** Make memory smarter and more useful.
 
-- [ ] Semantic memory search (local embeddings or cosine similarity)
-- [ ] Memory tagging and filtering in CLI
-- [ ] Context injection – automatically include relevant memories when running a skill
-- [ ] Memory export to Markdown or JSON
-- [ ] Memory pruning / archiving commands
-- [ ] `singleclaw memory list [--tag <tag>]`
-- [ ] `singleclaw memory search "query"`
+- [x] Semantic memory search – TF-IDF cosine similarity (`singleclaw/dmn/search.py`)
+- [x] Context injection – `MemorySearch.query()` replaces `recent(n=5)` in CLI `run` command
+- [x] `singleclaw memory list [--tag TAG]` – list all memory items; filter by tag
+- [x] `singleclaw memory search "query"` – relevance-ranked search with Rich table output
+- [x] Memory export to Markdown or JSON (`singleclaw memory export`)
+- [x] Memory pruning / archiving (`singleclaw memory archive --before DATE`)
 
 ---
 
