@@ -8,6 +8,9 @@ Entry point for all user-facing commands:
     singleclaw reflect [--since YYYY-MM-DD]
     singleclaw guardian-check <action>
     singleclaw skill show <name>
+    singleclaw auth login [--provider google|openai]
+    singleclaw auth logout
+    singleclaw auth status
 """
 
 from __future__ import annotations
@@ -47,6 +50,15 @@ skill_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(skill_app, name="skill")
+
+# ─── auth sub-app ─────────────────────────────────────────────────────────────
+
+auth_app = typer.Typer(
+    name="auth",
+    help="Manage LLM authentication (API key or browser login).",
+    no_args_is_help=True,
+)
+app.add_typer(auth_app, name="auth")
 
 console = Console()
 
@@ -151,6 +163,9 @@ def run(
     memory = MemoryStore(manager.workspace_dir)
     memory_context = memory.recent(n=_MEMORY_CONTEXT_SIZE)
 
+    # Attempt to resolve an LLM client (best-effort; falls back if unconfigured).
+    llm_client = _resolve_llm_client(manager)
+
     if decision == "REVIEW_REQUIRED" and not dry_run:
         # Show a dry-run preview first, then ask the user to confirm.
         preview_runner = SkillRunner(dry_run=True)
@@ -163,7 +178,7 @@ def run(
             raise typer.Exit(code=0)
 
         # User confirmed – run for real.
-        runner = SkillRunner(dry_run=False)
+        runner = SkillRunner(dry_run=False, llm_client=llm_client)
         result = runner.execute(skill=skill, input_file=input_file, memory_context=memory_context)
         console.print(result)
         journal.log(
@@ -171,10 +186,11 @@ def run(
             input_summary=f"skill={skill_name}",
             status="success",
             risk_level=risk,
+            token_usage=getattr(result, "_llm_token_usage", None),
         )
         return
 
-    runner = SkillRunner(dry_run=dry_run)
+    runner = SkillRunner(dry_run=dry_run, llm_client=llm_client)
     result = runner.execute(skill=skill, input_file=input_file, memory_context=memory_context)
 
     console.print(result)
@@ -183,6 +199,7 @@ def run(
         input_summary=f"skill={skill_name}",
         status="dry_run" if dry_run else "success",
         risk_level=risk,
+        token_usage=getattr(result, "_llm_token_usage", None),
     )
 
 
@@ -286,8 +303,144 @@ def skill_show(
 
 
 # ─────────────────────────────────────────
+# auth login
+# ─────────────────────────────────────────
+
+
+@auth_app.command(name="login")
+def auth_login(
+    provider: str = typer.Option(
+        "google",
+        "--provider",
+        "-p",
+        help="LLM provider to authenticate with: google",
+    ),
+) -> None:
+    """Authenticate with an LLM provider via browser (OAuth Device Flow).
+
+    Supports providers that implement OAuth 2.0 Device Authorization Grant
+    (RFC 8628).  Currently: Google (Gemini).
+
+    For API-key based providers (OpenAI), set OPENAI_API_KEY in your .env file
+    instead.
+    """
+    import os
+    from singleclaw.llm.auth.oauth_device import DeviceFlow, DeviceFlowConfig
+    from singleclaw.llm.auth.token_store import TokenStore
+    from singleclaw.llm.providers.google import GOOGLE_DEVICE_AUTH_URL, GOOGLE_TOKEN_URL, GOOGLE_GEMINI_SCOPE
+    from singleclaw.llm.exceptions import LLMProviderError
+
+    manager = WorkspaceManager()
+    journal = TaskJournal(manager.workspace_dir)
+
+    if provider.lower() != "google":
+        console.print(
+            f"[bold red]✘[/bold red] Provider [cyan]{provider}[/cyan] does not support "
+            "OAuth Device Flow.\n"
+            "For OpenAI, set [bold]OPENAI_API_KEY[/bold] in your .env file."
+        )
+        raise typer.Exit(code=1)
+
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+    if not client_id:
+        console.print(
+            "[bold red]✘[/bold red] GOOGLE_CLIENT_ID is not set.\n"
+            "Register an OAuth 2.0 application in Google Cloud Console and set\n"
+            "[bold]GOOGLE_CLIENT_ID[/bold] in your .env file."
+        )
+        raise typer.Exit(code=1)
+
+    config = DeviceFlowConfig(
+        device_authorization_url=GOOGLE_DEVICE_AUTH_URL,
+        token_url=GOOGLE_TOKEN_URL,
+        client_id=client_id,
+        scope=GOOGLE_GEMINI_SCOPE,
+    )
+    flow = DeviceFlow(config=config, console=console)
+
+    try:
+        token_data = flow.run()
+    except LLMProviderError as exc:
+        console.print(f"[bold red]✘ Login failed:[/bold red] {exc}")
+        journal.log(command="auth login", status="error", notes=str(exc))
+        raise typer.Exit(code=1) from exc
+
+    token_path = manager.workspace_dir / "auth_token.json"
+    store = TokenStore(token_path)
+    store.save(token_data)
+
+    console.print(
+        f"[bold green]✔[/bold green] Authenticated with Google. "
+        f"Token saved to [cyan]{token_path}[/cyan]"
+    )
+    journal.log(command="auth login", status="success", notes=f"provider={provider}")
+
+
+# ─────────────────────────────────────────
+# auth logout
+# ─────────────────────────────────────────
+
+
+@auth_app.command(name="logout")
+def auth_logout() -> None:
+    """Remove the stored OAuth token and return to unauthenticated state."""
+    manager = WorkspaceManager()
+    journal = TaskJournal(manager.workspace_dir)
+
+    token_path = manager.workspace_dir / "auth_token.json"
+    from singleclaw.llm.auth.token_store import TokenStore
+
+    store = TokenStore(token_path)
+    store.delete()
+    console.print("[bold green]✔[/bold green] Logged out. OAuth token removed.")
+    journal.log(command="auth logout", status="success")
+
+
+# ─────────────────────────────────────────
+# auth status
+# ─────────────────────────────────────────
+
+
+@auth_app.command(name="status")
+def auth_status() -> None:
+    """Show the current LLM authentication status."""
+    from singleclaw.llm.config import LLMConfig
+    from singleclaw.llm.exceptions import AuthNotConfiguredError
+
+    manager = WorkspaceManager()
+
+    try:
+        config = LLMConfig.resolve(workspace_dir=manager.workspace_dir)
+        console.print(
+            f"[bold green]✔ Authenticated[/bold green]  "
+            f"provider=[cyan]{config.provider.value}[/cyan]  "
+            f"mode=[cyan]{config.auth_mode.value}[/cyan]"
+        )
+    except AuthNotConfiguredError:
+        console.print(
+            "[yellow]✘ Not authenticated.[/yellow]\n"
+            "  • Set [bold]OPENAI_API_KEY[/bold] (or [bold]GEMINI_API_KEY[/bold]) "
+            "in your .env file, or\n"
+            "  • Run [bold]singleclaw auth login[/bold] to authenticate via browser."
+        )
+
+
+# ─────────────────────────────────────────
 # helpers
 # ─────────────────────────────────────────
+
+
+def _resolve_llm_client(manager: WorkspaceManager) -> object:
+    """Attempt to build an LLM client; return ``None`` on failure (no crash)."""
+    from singleclaw.llm.config import LLMConfig
+    from singleclaw.llm.factory import LLMClientFactory
+    from singleclaw.llm.exceptions import AuthNotConfiguredError, LLMProviderError
+
+    try:
+        config = LLMConfig.resolve(workspace_dir=manager.workspace_dir)
+        return LLMClientFactory.create(config)
+    except (AuthNotConfiguredError, LLMProviderError):
+        return None
 
 
 def _parse_since(value: str) -> datetime:

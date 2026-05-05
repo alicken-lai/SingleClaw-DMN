@@ -1,8 +1,5 @@
 """Tests for DMN memory store and task journal."""
 
-import json
-import pytest
-from pathlib import Path
 
 from singleclaw.dmn.memory import MemoryStore
 from singleclaw.dmn.journal import TaskJournal
