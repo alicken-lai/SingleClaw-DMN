@@ -24,11 +24,13 @@ Repository: <https://github.com/alicken-lai/SingleClaw-DMN>
 |---------|----------|------|
 | `MemoryStore` | `singleclaw/dmn/memory.py` | Append-only JSONL store for persistent memory items |
 | `TaskJournal` | `singleclaw/dmn/journal.py` | Timestamped audit log of every CLI command |
-| `reflect_on_memory` | `singleclaw/dmn/reflect.py` | Produces a Rich Markdown summary of recent activity |
+| `reflect_on_memory` | `singleclaw/dmn/reflect.py` | Produces a Rich Markdown summary; supports `since` date filter |
 | `GuardianPolicy` | `singleclaw/guardian/policy.py` | Classifies actions as ALLOW / REVIEW_REQUIRED / BLOCK |
 | `RiskClassifier` | `singleclaw/guardian/risk.py` | Keyword-based risk inference (low/medium/high/critical) |
-| `SkillRegistry` | `singleclaw/skills/registry.py` | Discovers and validates skills under `skills/` |
-| `SkillRunner` | `singleclaw/skills/runner.py` | Executes a skill (dry-run or real) |
+| `SkillRegistry` | `singleclaw/skills/registry.py` | Discovers runnable skills (`skill.yaml`) and guidance skills (`SKILL.md`) |
+| `Skill` | `singleclaw/skills/registry.py` | A validated runnable skill (has `skill.yaml`) |
+| `GuidanceSkill` | `singleclaw/skills/registry.py` | A SKILL.md-only guidance template (cannot be `run`) |
+| `SkillRunner` | `singleclaw/skills/runner.py` | Executes a skill; accepts optional `memory_context` list |
 | `WorkspaceManager` | `singleclaw/workspace/manager.py` | Manages `.singleclaw/` local directory |
 
 ---
@@ -49,9 +51,11 @@ Repository: <https://github.com/alicken-lai/SingleClaw-DMN>
 
 ## Current State (v0.1 – Foundation)
 
-- CLI commands: `init`, `remember`, `run`, `reflect`, `guardian-check`
+- CLI commands: `init`, `remember`, `run`, `reflect [--since DATE]`, `guardian-check`, `skill show`
 - Guardian policy is keyword-based; no LLM calls yet
-- Skill runner returns a placeholder result (LLM integration is v0.2)
+- `REVIEW_REQUIRED` actions show a dry-run preview and prompt `Proceed? [y/N]` interactively
+- Skill runner accepts `memory_context` (list of recent DMN records); surfaced in result panel
+- Guidance skills (`SKILL.md`-only) discoverable via `SkillRegistry.list_guidance()` / `get_guidance()`
 - No semantic memory search yet (v0.3)
 
 ---
