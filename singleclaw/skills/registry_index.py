@@ -105,7 +105,7 @@ class RegistryIndex:
         helper = SkillRegistry.__new__(SkillRegistry)
         skills: dict = {}
         for entry in self._load():
-            if entry.path is None:
+            if entry.path is None or not entry.path.is_dir():
                 continue
             yaml_path = entry.path / SkillRegistry.SKILL_YAML
             if not yaml_path.exists():

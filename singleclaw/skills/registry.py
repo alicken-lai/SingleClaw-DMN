@@ -107,7 +107,9 @@ class SkillRegistry:
             skills: Mapping of skill name → :class:`Skill` instance.
         """
         inst = cls.__new__(cls)
-        inst._root = Path("/dev/null")
+        # Use os.devnull as a cross-platform sentinel (never scanned because
+        # _skills is pre-populated and _load() returns early).
+        inst._root = Path(os.devnull)
         inst._skills = dict(skills)
         inst._guidance = {}
         return inst
