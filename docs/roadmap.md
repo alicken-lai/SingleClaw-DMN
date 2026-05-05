@@ -1,8 +1,8 @@
 # Roadmap
 
-## v0.1 – Foundation (current)
+## v0.1 – Foundation
 
-**Status:** ✅ In progress
+**Status:** ✅ Complete
 
 - [x] Project structure and `pyproject.toml`
 - [x] CLI skeleton with Typer (`init`, `remember`, `run`, `reflect`, `guardian-check`)
@@ -19,28 +19,36 @@
 
 ## v0.2 – LLM Integration
 
+**Status:** ✅ Complete
+
 **Theme:** Connect real AI to skill execution.
 
-- [ ] OpenAI-compatible API client (`singleclaw/llm/`)
-- [ ] Prompt rendering with input injection
-- [ ] Output parsing and JSON Schema validation
-- [ ] Streaming output support in CLI
-- [ ] `.env` integration for API keys
-- [ ] Token usage logging in journal
+- [x] OpenAI + Google Gemini provider clients (`singleclaw/llm/`)
+- [x] Prompt rendering with input and memory context injection (`singleclaw/llm/prompt.py`)
+- [x] `.env` integration for API keys (`LLMConfig.resolve()`)
+- [x] Token usage logging in journal (`TaskJournal.log(token_usage=…)`)
+- [x] Dual-mode auth: API Key (env var) + OAuth 2.0 Device Flow (RFC 8628)
+- [x] `auth login`, `auth logout`, `auth status` CLI sub-commands
+- [x] `TokenStore` – OAuth token persistence in `.singleclaw/auth_token.json`
+- [x] `LLMClientFactory` – unified provider instantiation; auth-agnostic `SkillRunner`
+- [x] Streaming provider support in `OpenAIProvider` and `GoogleProvider`
+- [ ] Streaming output surfaced in CLI (deferred to v0.3)
+- [ ] Output JSON Schema validation (deferred to v0.4)
 
 ---
 
 ## v0.3 – Memory Intelligence
 
+**Status:** ✅ Complete
+
 **Theme:** Make memory smarter and more useful.
 
-- [ ] Semantic memory search (local embeddings or cosine similarity)
-- [ ] Memory tagging and filtering in CLI
-- [ ] Context injection – automatically include relevant memories when running a skill
-- [ ] Memory export to Markdown or JSON
-- [ ] Memory pruning / archiving commands
-- [ ] `singleclaw memory list [--tag <tag>]`
-- [ ] `singleclaw memory search "query"`
+- [x] Semantic memory search – TF-IDF cosine similarity (`singleclaw/dmn/search.py`)
+- [x] Context injection – `MemorySearch.query()` replaces `recent(n=5)` in CLI `run` command
+- [x] `singleclaw memory list [--tag TAG]` – list all memory items; filter by tag
+- [x] `singleclaw memory search "query"` – relevance-ranked search with Rich table output
+- [x] Memory export to Markdown or JSON (`singleclaw memory export`)
+- [x] Memory pruning / archiving (`singleclaw memory archive --before DATE`)
 
 ---
 

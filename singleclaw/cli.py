@@ -11,19 +11,26 @@ Entry point for all user-facing commands:
     singleclaw auth login [--provider google|openai]
     singleclaw auth logout
     singleclaw auth status
+    singleclaw memory list [--tag TAG]
+    singleclaw memory search "query"
+    singleclaw memory export [--format markdown|json] [--output PATH]
+    singleclaw memory archive --before DATE
 """
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.table import Table
 
 from singleclaw.dmn.journal import TaskJournal
 from singleclaw.dmn.memory import MemoryStore
+from singleclaw.dmn.search import MemorySearch
 from singleclaw.dmn.reflect import reflect_on_memory
 from singleclaw.guardian.policy import GuardianPolicy
 from singleclaw.skills.registry import SkillRegistry
@@ -59,6 +66,15 @@ auth_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(auth_app, name="auth")
+
+# ─── memory sub-app ───────────────────────────────────────────────────────────
+
+memory_app = typer.Typer(
+    name="memory",
+    help="Browse, search, export, and archive DMN memory.",
+    no_args_is_help=True,
+)
+app.add_typer(memory_app, name="memory")
 
 console = Console()
 
@@ -159,9 +175,10 @@ def run(
 
     from singleclaw.skills.runner import SkillRunner  # local import to keep startup fast
 
-    # Retrieve recent memory context to inject into skill execution.
+    # Build query text from skill description for relevance-ranked context retrieval.
     memory = MemoryStore(manager.workspace_dir)
-    memory_context = memory.recent(n=_MEMORY_CONTEXT_SIZE)
+    query_text = skill.metadata.get("description", skill.name)
+    memory_context = MemorySearch(memory).query(query_text, top_k=_MEMORY_CONTEXT_SIZE)
 
     # Attempt to resolve an LLM client (best-effort; falls back if unconfigured).
     llm_client = _resolve_llm_client(manager)
@@ -423,6 +440,211 @@ def auth_status() -> None:
             "in your .env file, or\n"
             "  • Run [bold]singleclaw auth login[/bold] to authenticate via browser."
         )
+
+
+# ─────────────────────────────────────────
+# memory list
+# ─────────────────────────────────────────
+
+
+@memory_app.command(name="list")
+def memory_list(
+    tag: Optional[str] = typer.Option(None, "--tag", "-t", help="Filter by exact tag match."),
+) -> None:
+    """List memory items, optionally filtered by tag."""
+    manager = WorkspaceManager()
+    if not manager.is_initialised():
+        console.print("[yellow]Workspace not initialised – run [bold]singleclaw init[/bold] first.[/yellow]")
+        raise typer.Exit(code=1)
+
+    store = MemoryStore(manager.workspace_dir)
+    records = store.by_tag(tag) if tag else store.list_all()
+
+    if not records:
+        msg = "No memory items found" + (f" with tag [cyan]{tag}[/cyan]" if tag else "") + "."
+        console.print(f"[dim]{msg}[/dim]")
+        return
+
+    table = Table(title="DMN Memory", show_header=True, header_style="bold cyan")
+    table.add_column("ID", style="dim", width=10)
+    table.add_column("Timestamp", style="dim", width=26)
+    table.add_column("Tag", width=12)
+    table.add_column("Text")
+    for r in records:
+        table.add_row(
+            r.get("id", ""),
+            r.get("timestamp", ""),
+            r.get("tag", ""),
+            r.get("text", ""),
+        )
+    console.print(table)
+
+
+# ─────────────────────────────────────────
+# memory search
+# ─────────────────────────────────────────
+
+
+@memory_app.command(name="search")
+def memory_search(
+    query: str = typer.Argument(..., help="Natural-language query to search memory."),
+    top_k: int = typer.Option(5, "--top-k", "-k", help="Number of results to return."),
+) -> None:
+    """Search memory by relevance and display ranked results."""
+    manager = WorkspaceManager()
+    if not manager.is_initialised():
+        console.print("[yellow]Workspace not initialised – run [bold]singleclaw init[/bold] first.[/yellow]")
+        raise typer.Exit(code=1)
+
+    store = MemoryStore(manager.workspace_dir)
+    results = MemorySearch(store).query(query, top_k=top_k)
+
+    if not results:
+        console.print("[dim]No memory items found.[/dim]")
+        return
+
+    table = Table(title=f"Memory search: {query!r}", show_header=True, header_style="bold cyan")
+    table.add_column("ID", style="dim", width=10)
+    table.add_column("Timestamp", style="dim", width=26)
+    table.add_column("Tag", width=12)
+    table.add_column("Text")
+    for r in results:
+        table.add_row(
+            r.get("id", ""),
+            r.get("timestamp", ""),
+            r.get("tag", ""),
+            r.get("text", ""),
+        )
+    console.print(table)
+
+
+# ─────────────────────────────────────────
+# memory export
+# ─────────────────────────────────────────
+
+
+@memory_app.command(name="export")
+def memory_export(
+    fmt: str = typer.Option("markdown", "--format", "-f", help="Output format: markdown or json."),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output file path."),
+) -> None:
+    """Export the full memory store to Markdown or JSON."""
+    manager = WorkspaceManager()
+    if not manager.is_initialised():
+        console.print("[yellow]Workspace not initialised – run [bold]singleclaw init[/bold] first.[/yellow]")
+        raise typer.Exit(code=1)
+
+    fmt = fmt.lower()
+    if fmt not in ("markdown", "json"):
+        console.print(f"[bold red]✘ Unknown format:[/bold red] {fmt!r}. Choose [bold]markdown[/bold] or [bold]json[/bold].")
+        raise typer.Exit(code=1)
+
+    store = MemoryStore(manager.workspace_dir)
+    records = store.list_all()
+
+    if fmt == "json":
+        content = json.dumps(records, indent=2, ensure_ascii=False)
+    else:
+        lines = ["# SingleClaw Memory Export\n"]
+        for r in records:
+            lines.append(f"- [{r.get('timestamp', '')}] **[{r.get('tag', '')}]** {r.get('text', '')}")
+        content = "\n".join(lines) + "\n"
+
+    if output:
+        from pathlib import Path
+        out_path = Path(output)
+        out_path.write_text(content, encoding="utf-8")
+        console.print(f"[bold green]✔[/bold green] Memory exported to [cyan]{out_path}[/cyan] ({len(records)} records).")
+    else:
+        console.print(content)
+
+
+# ─────────────────────────────────────────
+# memory archive
+# ─────────────────────────────────────────
+
+
+@memory_app.command(name="archive")
+def memory_archive(
+    before: str = typer.Option(..., "--before", help="Archive records older than this date (YYYY-MM-DD)."),
+) -> None:
+    """Move memory records older than --before DATE to the archive file.
+
+    This is a destructive operation: records are removed from the live memory
+    store.  A Guardian REVIEW_REQUIRED decision is required to proceed.
+    """
+    import shutil
+
+    manager = WorkspaceManager()
+    journal = TaskJournal(manager.workspace_dir)
+
+    if not manager.is_initialised():
+        console.print("[yellow]Workspace not initialised – run [bold]singleclaw init[/bold] first.[/yellow]")
+        raise typer.Exit(code=1)
+
+    try:
+        cutoff = _parse_since(before)
+    except ValueError:
+        console.print(
+            f"[bold red]✘ Invalid --before value:[/bold red] {before!r}. Use YYYY-MM-DD or ISO 8601 format."
+        )
+        raise typer.Exit(code=1)
+
+    guardian = GuardianPolicy()
+    decision = guardian.check(action="archive memory records", risk_level="medium")
+
+    if decision == "BLOCK":
+        console.print("[bold red]✘ BLOCKED by Guardian:[/bold red] archive is not permitted.")
+        journal.log(command="memory archive", input_summary=f"before={before}", status="blocked")
+        raise typer.Exit(code=1)
+
+    store = MemoryStore(manager.workspace_dir)
+    all_records = store.list_all()
+
+    to_archive = [r for r in all_records if r.get("timestamp", "") < cutoff.isoformat()]
+    to_keep = [r for r in all_records if r.get("timestamp", "") >= cutoff.isoformat()]
+
+    if not to_archive:
+        console.print(f"[dim]No records found older than {before}.[/dim]")
+        return
+
+    console.print(
+        f"[yellow]This will move [bold]{len(to_archive)}[/bold] record(s) older than "
+        f"[bold]{before}[/bold] to the archive.[/yellow]\n"
+        f"[dim]{len(to_keep)} record(s) will remain in the active store.[/dim]"
+    )
+
+    if not typer.confirm("Proceed with archiving?", default=False):
+        console.print("[yellow]Archive cancelled.[/yellow]")
+        journal.log(command="memory archive", input_summary=f"before={before}", status="aborted")
+        raise typer.Exit(code=0)
+
+    # Back up the existing memory file before modification
+    memory_path = manager.workspace_dir / MemoryStore.MEMORY_FILE
+    archive_path = manager.workspace_dir / "memory_archive.jsonl"
+
+    if memory_path.exists():
+        shutil.copy2(memory_path, str(memory_path) + ".bak")
+
+    # Write archive records (append)
+    with archive_path.open("a", encoding="utf-8") as fh:
+        for r in to_archive:
+            fh.write(json.dumps(r) + "\n")
+
+    # Rewrite live memory file with only records to keep
+    with memory_path.open("w", encoding="utf-8") as fh:
+        for r in to_keep:
+            fh.write(json.dumps(r) + "\n")
+
+    console.print(
+        f"[bold green]✔[/bold green] Archived [bold]{len(to_archive)}[/bold] record(s) to "
+        f"[cyan]{archive_path}[/cyan]."
+    )
+    journal.log(
+        command="memory archive",
+        input_summary=f"before={before} archived={len(to_archive)}",
+        status="success",
+    )
 
 
 # ─────────────────────────────────────────

@@ -237,3 +237,186 @@ class TestReflectSince:
             result = runner.invoke(app, ["reflect", "--since", "2026-01-01"])
 
         assert result.exit_code == 0
+
+
+# ─────────────────────────────────────────────────────────────
+# Slice 4 – memory sub-commands
+# ─────────────────────────────────────────────────────────────
+
+
+def _make_workspace_with_memory(tmp_path: Path, records: list[dict] | None = None) -> Path:
+    """Create an initialised workspace and optionally seed memory records."""
+    workspace = tmp_path / ".singleclaw"
+    workspace.mkdir()
+    (workspace / "journal.jsonl").touch()
+    (workspace / "memory_notes.md").touch()
+    store = MemoryStore(workspace)
+    for r in (records or []):
+        store.add(r["text"], tag=r.get("tag", "note"))
+    return workspace
+
+
+class TestMemoryList:
+    def test_list_all_shows_records(self, tmp_path):
+        workspace = _make_workspace_with_memory(
+            tmp_path, [{"text": "alpha note", "tag": "note"}, {"text": "beta decision", "tag": "decision"}]
+        )
+        with patch("singleclaw.cli.WorkspaceManager") as MockWM:
+            MockWM.return_value.is_initialised.return_value = True
+            MockWM.return_value.workspace_dir = workspace
+            result = runner.invoke(app, ["memory", "list"])
+        assert result.exit_code == 0
+        assert "alpha note" in result.output
+        assert "beta decision" in result.output
+
+    def test_list_filter_by_tag(self, tmp_path):
+        workspace = _make_workspace_with_memory(
+            tmp_path, [{"text": "alpha", "tag": "note"}, {"text": "beta", "tag": "decision"}]
+        )
+        with patch("singleclaw.cli.WorkspaceManager") as MockWM:
+            MockWM.return_value.is_initialised.return_value = True
+            MockWM.return_value.workspace_dir = workspace
+            result = runner.invoke(app, ["memory", "list", "--tag", "decision"])
+        assert result.exit_code == 0
+        assert "beta" in result.output
+        assert "alpha" not in result.output
+
+    def test_list_empty_store_prints_no_items_message(self, tmp_path):
+        workspace = _make_workspace_with_memory(tmp_path)
+        with patch("singleclaw.cli.WorkspaceManager") as MockWM:
+            MockWM.return_value.is_initialised.return_value = True
+            MockWM.return_value.workspace_dir = workspace
+            result = runner.invoke(app, ["memory", "list"])
+        assert result.exit_code == 0
+        assert "No memory items" in result.output
+
+
+class TestMemorySearchCli:
+    def test_search_returns_relevant_items(self, tmp_path):
+        workspace = _make_workspace_with_memory(
+            tmp_path,
+            [
+                {"text": "vendor procurement budget", "tag": "decision"},
+                {"text": "lunch preference sushi", "tag": "personal"},
+            ],
+        )
+        with patch("singleclaw.cli.WorkspaceManager") as MockWM:
+            MockWM.return_value.is_initialised.return_value = True
+            MockWM.return_value.workspace_dir = workspace
+            result = runner.invoke(app, ["memory", "search", "vendor procurement"])
+        assert result.exit_code == 0
+        # Rich may wrap long cell text; check for unique substrings instead
+        assert "vendor" in result.output
+        assert "procurement" in result.output
+
+    def test_search_empty_store_prints_no_items(self, tmp_path):
+        workspace = _make_workspace_with_memory(tmp_path)
+        with patch("singleclaw.cli.WorkspaceManager") as MockWM:
+            MockWM.return_value.is_initialised.return_value = True
+            MockWM.return_value.workspace_dir = workspace
+            result = runner.invoke(app, ["memory", "search", "anything"])
+        assert result.exit_code == 0
+        assert "No memory items" in result.output
+
+
+class TestMemoryExport:
+    def test_export_markdown_to_stdout(self, tmp_path):
+        workspace = _make_workspace_with_memory(tmp_path, [{"text": "my note", "tag": "note"}])
+        with patch("singleclaw.cli.WorkspaceManager") as MockWM:
+            MockWM.return_value.is_initialised.return_value = True
+            MockWM.return_value.workspace_dir = workspace
+            result = runner.invoke(app, ["memory", "export"])
+        assert result.exit_code == 0
+        assert "my note" in result.output
+
+    def test_export_json_to_stdout(self, tmp_path):
+        workspace = _make_workspace_with_memory(tmp_path, [{"text": "json note", "tag": "note"}])
+        with patch("singleclaw.cli.WorkspaceManager") as MockWM:
+            MockWM.return_value.is_initialised.return_value = True
+            MockWM.return_value.workspace_dir = workspace
+            result = runner.invoke(app, ["memory", "export", "--format", "json"])
+        assert result.exit_code == 0
+        assert "json note" in result.output
+        # Output should be valid JSON
+        data = json.loads(result.output.strip())
+        assert isinstance(data, list)
+        assert data[0]["text"] == "json note"
+
+    def test_export_to_file(self, tmp_path):
+        workspace = _make_workspace_with_memory(tmp_path, [{"text": "file note", "tag": "note"}])
+        out_file = tmp_path / "export.md"
+        with patch("singleclaw.cli.WorkspaceManager") as MockWM:
+            MockWM.return_value.is_initialised.return_value = True
+            MockWM.return_value.workspace_dir = workspace
+            result = runner.invoke(app, ["memory", "export", "--output", str(out_file)])
+        assert result.exit_code == 0
+        assert out_file.exists()
+        assert "file note" in out_file.read_text(encoding="utf-8")
+
+    def test_export_invalid_format_exits_nonzero(self, tmp_path):
+        workspace = _make_workspace_with_memory(tmp_path)
+        with patch("singleclaw.cli.WorkspaceManager") as MockWM:
+            MockWM.return_value.is_initialised.return_value = True
+            MockWM.return_value.workspace_dir = workspace
+            result = runner.invoke(app, ["memory", "export", "--format", "csv"])
+        assert result.exit_code != 0
+
+
+class TestMemoryArchive:
+    def test_archive_moves_old_records(self, tmp_path):
+        workspace = tmp_path / ".singleclaw"
+        workspace.mkdir()
+        (workspace / "journal.jsonl").touch()
+        (workspace / "memory_notes.md").touch()
+        # Write records with explicit timestamps manually
+        old_record = {
+            "id": "aaa00001",
+            "timestamp": "2020-01-01T00:00:00+00:00",
+            "tag": "note",
+            "text": "old item",
+        }
+        new_record = {
+            "id": "bbb00002",
+            "timestamp": "2026-05-01T00:00:00+00:00",
+            "tag": "note",
+            "text": "new item",
+        }
+        memory_path = workspace / "memory.jsonl"
+        with memory_path.open("w", encoding="utf-8") as fh:
+            fh.write(json.dumps(old_record) + "\n")
+            fh.write(json.dumps(new_record) + "\n")
+
+        with patch("singleclaw.cli.WorkspaceManager") as MockWM, \
+             patch("singleclaw.cli.typer.confirm", return_value=True):
+            MockWM.return_value.is_initialised.return_value = True
+            MockWM.return_value.workspace_dir = workspace
+            result = runner.invoke(app, ["memory", "archive", "--before", "2025-01-01"])
+
+        assert result.exit_code == 0
+        archive_path = workspace / "memory_archive.jsonl"
+        assert archive_path.exists()
+        archive_lines = archive_path.read_text(encoding="utf-8").strip().splitlines()
+        assert len(archive_lines) == 1
+        assert json.loads(archive_lines[0])["text"] == "old item"
+        live_lines = memory_path.read_text(encoding="utf-8").strip().splitlines()
+        assert len(live_lines) == 1
+        assert json.loads(live_lines[0])["text"] == "new item"
+
+    def test_archive_aborted_on_no(self, tmp_path):
+        workspace = _make_workspace_with_memory(tmp_path, [{"text": "some item", "tag": "note"}])
+        with patch("singleclaw.cli.WorkspaceManager") as MockWM, \
+             patch("singleclaw.cli.typer.confirm", return_value=False):
+            MockWM.return_value.is_initialised.return_value = True
+            MockWM.return_value.workspace_dir = workspace
+            result = runner.invoke(app, ["memory", "archive", "--before", "2030-01-01"])
+        assert result.exit_code == 0
+        assert "cancelled" in result.output.lower()
+
+    def test_archive_nothing_to_do(self, tmp_path):
+        workspace = _make_workspace_with_memory(tmp_path, [{"text": "future note", "tag": "note"}])
+        with patch("singleclaw.cli.WorkspaceManager") as MockWM:
+            MockWM.return_value.is_initialised.return_value = True
+            MockWM.return_value.workspace_dir = workspace
+            result = runner.invoke(app, ["memory", "archive", "--before", "2000-01-01"])
+        assert result.exit_code == 0
+        assert "No records found" in result.output

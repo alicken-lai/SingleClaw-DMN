@@ -57,21 +57,34 @@ Repository: <https://github.com/alicken-lai/SingleClaw-DMN>
 
 ---
 
-## Current State (v0.2 – LLM Integration)
+## Current State (v0.3 ✅ Complete → v0.4 Next)
 
+### v0.2 – LLM Integration (complete)
 - CLI commands: `init`, `remember`, `run`, `reflect [--since DATE]`, `guardian-check`, `skill show`
-- **New in v0.2:** `auth login`, `auth logout`, `auth status` – OAuth Device Flow + API key auth
-- **New in v0.2:** Real LLM execution in `SkillRunner` via unified `LLMClient` protocol
+- `auth login`, `auth logout`, `auth status` – OAuth Device Flow + API key auth
+- Real LLM execution in `SkillRunner` via unified `LLMClient` protocol
   - Supports OpenAI (API key) and Google Gemini (API key or OAuth Device Flow)
   - Falls back gracefully to placeholder when no auth is configured
-- **New in v0.2:** `prompt_template` field in `skill.yaml` rendered via `singleclaw/llm/prompt.py`
-- **New in v0.2:** `singleclaw/llm/` subsystem: client, config, providers, auth, factory
-- **New in v0.2:** `TaskJournal.log()` accepts `token_usage` dict to track LLM costs
+- `prompt_template` field in `skill.yaml` rendered via `singleclaw/llm/prompt.py`
+- `singleclaw/llm/` subsystem: client, config, providers, auth, factory
+- `TaskJournal.log()` accepts `token_usage` dict to track LLM costs
 - Guardian policy is keyword-based; no LLM calls yet in Guardian itself
 - `REVIEW_REQUIRED` actions show a dry-run preview and prompt `Proceed? [y/N]` interactively
-- Skill runner accepts `memory_context` (list of recent DMN records); injected into LLM prompts
 - Guidance skills (`SKILL.md`-only) discoverable via `SkillRegistry.list_guidance()` / `get_guidance()`
-- No semantic memory search yet (v0.3)
+- Streaming support in `OpenAIProvider` and `GoogleProvider`; not yet surfaced in CLI
+
+### v0.3 – Memory Intelligence (complete)
+- `MemorySearch` in `singleclaw/dmn/search.py`: TF-IDF cosine similarity over `MemoryStore`
+- CLI `run` uses `MemorySearch.query(skill_description, top_k=5)` instead of `recent(n=5)` for relevance-ranked context injection
+- `singleclaw memory list [--tag TAG]` – lists all memory items in Rich table; filters by tag
+- `singleclaw memory search "query"` – relevance-ranked search with Rich table output
+- `singleclaw memory export [--format markdown|json] [--output PATH]` – exports full store (read-only)
+- `singleclaw memory archive --before DATE` – moves old records to `memory_archive.jsonl` (destructive; Guardian REVIEW_REQUIRED)
+
+### v0.4 – Skill Ecosystem (next)
+- Planned: `singleclaw skills validate`, `singleclaw skills list`
+- Planned: input/output JSON Schema validation
+- Planned: skill packaging spec and community registry
 
 ---
 
