@@ -8,6 +8,8 @@ Entry point for all user-facing commands:
     singleclaw reflect [--since YYYY-MM-DD]
     singleclaw guardian-check <action>
     singleclaw skill show <name>
+    singleclaw skills list
+    singleclaw skills validate <skill_name>
     singleclaw auth login [--provider google|openai]
     singleclaw auth logout
     singleclaw auth status
@@ -57,6 +59,15 @@ skill_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(skill_app, name="skill")
+
+# ─── skills sub-app (v0.4) ───────────────────────────────────────────────────
+
+skills_app = typer.Typer(
+    name="skills",
+    help="List and validate runnable skills.",
+    no_args_is_help=True,
+)
+app.add_typer(skills_app, name="skills")
 
 # ─── auth sub-app ─────────────────────────────────────────────────────────────
 
@@ -320,8 +331,93 @@ def skill_show(
 
 
 # ─────────────────────────────────────────
-# auth login
+# skills list
 # ─────────────────────────────────────────
+
+
+@skills_app.command(name="list")
+def skills_list() -> None:
+    """List all runnable skills in a Rich table."""
+    from singleclaw.skills.validator import SkillValidator
+
+    registry = SkillRegistry()
+    skills = registry.list_all()
+
+    if not skills:
+        console.print("[dim]No skills found.[/dim]")
+        return
+
+    validator = SkillValidator()
+    table = Table(title="Available Skills", show_header=True, header_style="bold cyan")
+    table.add_column("Name", style="bold", min_width=16, no_wrap=True)
+    table.add_column("Version", width=10)
+    table.add_column("Risk", width=10)
+    table.add_column("Description")
+    table.add_column("In Schema", width=10, justify="center")
+    table.add_column("Out Schema", width=11, justify="center")
+    table.add_column("Status", width=8, justify="center")
+
+    for skill in sorted(skills, key=lambda s: s.name):
+        manifest_result = validator.validate_manifest(skill)
+        status = "[green]✅[/green]" if manifest_result.is_valid else "[red]❌[/red]"
+        has_in = "✓" if skill.metadata.get("input_schema") else "–"
+        has_out = "✓" if skill.metadata.get("output_schema") else "–"
+        description = skill.metadata.get("description", "")
+        if len(description) > 60:
+            description = description[:57] + "..."
+        table.add_row(
+            skill.name,
+            skill.metadata.get("version", ""),
+            skill.metadata.get("risk_level", ""),
+            description,
+            has_in,
+            has_out,
+            status,
+        )
+
+    console.print(table)
+
+
+# ─────────────────────────────────────────
+# skills validate
+# ─────────────────────────────────────────
+
+
+@skills_app.command(name="validate")
+def skills_validate(
+    skill_name: str = typer.Argument(..., help="Name of the skill to validate."),
+) -> None:
+    """Validate a skill's manifest and JSON Schemas."""
+    from singleclaw.skills.validator import SkillValidator
+
+    registry = SkillRegistry()
+    skill = registry.get(skill_name)
+
+    if skill is None:
+        console.print(f"[bold red]✘ Unknown skill:[/bold red] [cyan]{skill_name}[/cyan]")
+        available = [s.name for s in registry.list_all()]
+        if available:
+            console.print(f"Available: {', '.join(sorted(available))}")
+        raise typer.Exit(code=1)
+
+    validator = SkillValidator()
+    result = validator.validate_manifest(skill)
+
+    if result.is_valid:
+        console.print(
+            f"[bold green]✔[/bold green] Skill [cyan]{skill_name}[/cyan] is valid."
+        )
+        if skill.metadata.get("input_schema"):
+            console.print("  [dim]input_schema:[/dim]  ✓ present and valid")
+        if skill.metadata.get("output_schema"):
+            console.print("  [dim]output_schema:[/dim] ✓ present and valid")
+    else:
+        console.print(
+            f"[bold red]✘ Skill [cyan]{skill_name}[/cyan] has validation errors:[/bold red]"
+        )
+        for error in result.errors:
+            console.print(f"  [red]•[/red] {error}")
+        raise typer.Exit(code=1)
 
 
 @auth_app.command(name="login")
