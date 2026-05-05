@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Optional
 
@@ -65,6 +66,12 @@ class GuidanceSkill:
 class SkillRegistry:
     """Discover and cache skills from the skills root directory.
 
+    In addition to the local filesystem, skills installed as Python packages
+    that declare an entry-point under the ``singleclaw.skills`` group are also
+    discovered.  Each such entry-point's ``load()`` must return a :class:`Path`
+    pointing to a skill directory (or a zero-argument callable that returns
+    one).
+
     Args:
         skills_root: Path to the top-level ``skills/`` directory.  Defaults to
                      ``skills/`` relative to the current working directory.
@@ -72,6 +79,8 @@ class SkillRegistry:
 
     SKILL_YAML = "skill.yaml"
     SKILL_MD = "SKILL.md"
+    #: Entry-point group used by third-party skill packages.
+    ENTRY_POINT_GROUP = "singleclaw.skills"
 
     def __init__(self, skills_root: Optional[Path] = None) -> None:
         if skills_root is None:
@@ -86,6 +95,24 @@ class SkillRegistry:
         self._root = Path(skills_root)
         self._skills: Optional[dict[str, Skill]] = None  # lazy load
         self._guidance: Optional[dict[str, GuidanceSkill]] = None  # lazy load
+
+    @classmethod
+    def _from_prebuilt(cls, skills: dict[str, "Skill"]) -> "SkillRegistry":
+        """Create a registry pre-populated with the given skill map.
+
+        Intended for use by :class:`~singleclaw.skills.registry_index.RegistryIndex`
+        and tests.  The returned registry will not scan the filesystem.
+
+        Args:
+            skills: Mapping of skill name → :class:`Skill` instance.
+        """
+        inst = cls.__new__(cls)
+        # Use os.devnull as a cross-platform sentinel (never scanned because
+        # _skills is pre-populated and _load() returns early).
+        inst._root = Path(os.devnull)
+        inst._skills = dict(skills)
+        inst._guidance = {}
+        return inst
 
     # ─── public API – runnable skills ────────────────────────────────────────
 
@@ -138,7 +165,45 @@ class SkillRegistry:
             skill = self._load_skill(skill_dir, yaml_path)
             self._skills[skill.name] = skill
 
+        # Merge skills discovered via installed package entry-points.
+        for skill in self._load_entry_point_skills():
+            # Filesystem skills take precedence over entry-point skills.
+            if skill.name not in self._skills:
+                self._skills[skill.name] = skill
+
         return self._skills
+
+    def _load_entry_point_skills(self) -> list[Skill]:
+        """Discover skills declared via the ``singleclaw.skills`` entry-point group.
+
+        Each entry-point's ``load()`` should return a :class:`~pathlib.Path`
+        to a skill directory, or a zero-argument callable that returns one.
+        Malformed or unresolvable entry-points are silently skipped.
+        """
+        discovered: list[Skill] = []
+        try:
+            eps = entry_points(group=self.ENTRY_POINT_GROUP)
+        except Exception:  # noqa: BLE001
+            return discovered
+
+        for ep in eps:
+            try:
+                value = ep.load()
+                if callable(value) and not isinstance(value, Path):
+                    skill_dir = Path(value())
+                else:
+                    skill_dir = Path(value)
+                if not skill_dir.is_dir():
+                    continue
+                yaml_path = skill_dir / self.SKILL_YAML
+                if not yaml_path.exists():
+                    continue
+                skill = self._load_skill(skill_dir, yaml_path)
+                discovered.append(skill)
+            except Exception:  # noqa: BLE001
+                continue
+
+        return discovered
 
     def _load_skill(self, skill_dir: Path, yaml_path: Path) -> Skill:
         """Parse a skill directory and return a ``Skill`` object."""
