@@ -57,21 +57,29 @@ Repository: <https://github.com/alicken-lai/SingleClaw-DMN>
 
 ---
 
-## Current State (v0.2 – LLM Integration)
+## Current State (v0.2 ✅ Complete → v0.3 In Progress)
 
+### v0.2 – LLM Integration (complete)
 - CLI commands: `init`, `remember`, `run`, `reflect [--since DATE]`, `guardian-check`, `skill show`
-- **New in v0.2:** `auth login`, `auth logout`, `auth status` – OAuth Device Flow + API key auth
-- **New in v0.2:** Real LLM execution in `SkillRunner` via unified `LLMClient` protocol
+- `auth login`, `auth logout`, `auth status` – OAuth Device Flow + API key auth
+- Real LLM execution in `SkillRunner` via unified `LLMClient` protocol
   - Supports OpenAI (API key) and Google Gemini (API key or OAuth Device Flow)
   - Falls back gracefully to placeholder when no auth is configured
-- **New in v0.2:** `prompt_template` field in `skill.yaml` rendered via `singleclaw/llm/prompt.py`
-- **New in v0.2:** `singleclaw/llm/` subsystem: client, config, providers, auth, factory
-- **New in v0.2:** `TaskJournal.log()` accepts `token_usage` dict to track LLM costs
+- `prompt_template` field in `skill.yaml` rendered via `singleclaw/llm/prompt.py`
+- `singleclaw/llm/` subsystem: client, config, providers, auth, factory
+- `TaskJournal.log()` accepts `token_usage` dict to track LLM costs
 - Guardian policy is keyword-based; no LLM calls yet in Guardian itself
 - `REVIEW_REQUIRED` actions show a dry-run preview and prompt `Proceed? [y/N]` interactively
 - Skill runner accepts `memory_context` (list of recent DMN records); injected into LLM prompts
 - Guidance skills (`SKILL.md`-only) discoverable via `SkillRegistry.list_guidance()` / `get_guidance()`
-- No semantic memory search yet (v0.3)
+- Streaming support in `OpenAIProvider` and `GoogleProvider`; not yet surfaced in CLI
+
+### v0.3 – Memory Intelligence (next)
+- Memory context injection still uses recency-based (`recent(n=5)`); semantic search not yet implemented
+- Planned: `MemorySearch` (TF-IDF cosine similarity) in `singleclaw/dmn/search.py`
+- Planned: `singleclaw memory list [--tag TAG]` and `singleclaw memory search "query"`
+- Planned: memory export and archive commands
+- See `docs/adr/0006-v0.3-semantic-memory-search.md` for design decisions
 
 ---
 
