@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "singleclaw-dmn"
-version = "0.1.0"
+version = "0.2.0"
 description = "SingleClaw DMN – a single-agent personal AI work OS with DMN memory, skill library, and guardian check."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -25,6 +25,8 @@ dependencies = [
     "pyyaml>=6.0",
     "rich>=13.0",
     "jsonschema>=4.20",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]

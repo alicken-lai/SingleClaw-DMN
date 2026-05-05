@@ -1,6 +1,5 @@
 """Tests for the Guardian policy and risk classifier."""
 
-import pytest
 
 from singleclaw.guardian.policy import GuardianPolicy, ALLOW, REVIEW_REQUIRED, BLOCK
 from singleclaw.guardian.risk import RiskClassifier

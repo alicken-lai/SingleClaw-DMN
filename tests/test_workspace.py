@@ -1,8 +1,5 @@
 """Tests for the workspace manager."""
 
-import json
-import pytest
-from pathlib import Path
 
 from singleclaw.workspace.manager import WorkspaceManager
 
