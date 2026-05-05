@@ -11,6 +11,7 @@ Guidance skills are SKILL.md-only templates found in category subdirectories
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -74,9 +75,14 @@ class SkillRegistry:
 
     def __init__(self, skills_root: Optional[Path] = None) -> None:
         if skills_root is None:
-            # Try project root relative to this file first, then cwd.
-            candidate = Path(__file__).resolve().parent.parent.parent / "skills"
-            skills_root = candidate if candidate.is_dir() else Path.cwd() / "skills"
+            # Allow environment override (useful for tests and custom deployments).
+            env_root = os.environ.get("SINGLECLAW_SKILLS_ROOT", "").strip()
+            if env_root:
+                skills_root = Path(env_root)
+            else:
+                # Try project root relative to this file first, then cwd.
+                candidate = Path(__file__).resolve().parent.parent.parent / "skills"
+                skills_root = candidate if candidate.is_dir() else Path.cwd() / "skills"
         self._root = Path(skills_root)
         self._skills: Optional[dict[str, Skill]] = None  # lazy load
         self._guidance: Optional[dict[str, GuidanceSkill]] = None  # lazy load

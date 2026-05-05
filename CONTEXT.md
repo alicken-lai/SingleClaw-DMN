@@ -27,9 +27,11 @@ Repository: <https://github.com/alicken-lai/SingleClaw-DMN>
 | `reflect_on_memory` | `singleclaw/dmn/reflect.py` | Produces a Rich Markdown summary; supports `since` date filter |
 | `GuardianPolicy` | `singleclaw/guardian/policy.py` | Classifies actions as ALLOW / REVIEW_REQUIRED / BLOCK |
 | `RiskClassifier` | `singleclaw/guardian/risk.py` | Keyword-based risk inference (low/medium/high/critical) |
-| `SkillRegistry` | `singleclaw/skills/registry.py` | Discovers runnable skills (`skill.yaml`) and guidance skills (`SKILL.md`) |
+| `SkillRegistry` | `singleclaw/skills/registry.py` | Discovers runnable skills (`skill.yaml`) and guidance skills (`SKILL.md`); supports `SINGLECLAW_SKILLS_ROOT` env override |
 | `Skill` | `singleclaw/skills/registry.py` | A validated runnable skill (has `skill.yaml`) |
 | `GuidanceSkill` | `singleclaw/skills/registry.py` | A SKILL.md-only guidance template (cannot be `run`) |
+| `SkillValidator` | `singleclaw/skills/validator.py` | Validates `input_schema` / `output_schema` (JSON Schema Draft 7) declared in `skill.yaml` |
+| `ValidationResult` | `singleclaw/skills/validator.py` | Dataclass: `is_valid: bool`, `errors: list[str]` |
 | `SkillRunner` | `singleclaw/skills/runner.py` | Executes a skill; accepts optional `memory_context` list and `llm_client` |
 | `WorkspaceManager` | `singleclaw/workspace/manager.py` | Manages `.singleclaw/` local directory |
 | `LLMClient` | `singleclaw/llm/client.py` | Protocol satisfied by all LLM provider implementations |
@@ -81,10 +83,13 @@ Repository: <https://github.com/alicken-lai/SingleClaw-DMN>
 - `singleclaw memory export [--format markdown|json] [--output PATH]` – exports full store (read-only)
 - `singleclaw memory archive --before DATE` – moves old records to `memory_archive.jsonl` (destructive; Guardian REVIEW_REQUIRED)
 
-### v0.4 – Skill Ecosystem (next)
-- Planned: `singleclaw skills validate`, `singleclaw skills list`
-- Planned: input/output JSON Schema validation
-- Planned: skill packaging spec and community registry
+### v0.4 – Skill Ecosystem (in progress)
+- `SkillValidator` in `singleclaw/skills/validator.py`: validates `input_schema` / `output_schema` JSON Schema Draft 7 fields
+- `singleclaw skills list` – Rich table of all runnable skills (name, version, risk, schema presence, validity)
+- `singleclaw skills validate <name>` – validates a skill's manifest; exits 0/1 based on result
+- `SkillRegistry` now respects `SINGLECLAW_SKILLS_ROOT` environment variable for root override
+- ADR 0007 documents all v0.4 architecture decisions
+- Planned: skill packaging spec and community registry index format
 
 ---
 
@@ -120,8 +125,9 @@ singleclaw/cli.py                  ← CLI entry point
 singleclaw/dmn/memory.py           ← Memory store
 singleclaw/dmn/journal.py          ← Task journal (with token_usage)
 singleclaw/guardian/policy.py      ← Guardian policy
-singleclaw/skills/registry.py      ← Skill discovery
+singleclaw/skills/registry.py      ← Skill discovery (SINGLECLAW_SKILLS_ROOT support)
 singleclaw/skills/runner.py        ← Skill execution (with LLM integration)
+singleclaw/skills/validator.py     ← Skill JSON Schema validator (v0.4)
 singleclaw/llm/                    ← LLM subsystem (v0.2)
 singleclaw/llm/client.py           ← LLMClient protocol + LLMResponse
 singleclaw/llm/config.py           ← Auth mode detection (API key / OAuth)
