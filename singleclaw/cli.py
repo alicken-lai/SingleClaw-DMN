@@ -5,14 +5,19 @@ Entry point for all user-facing commands:
     singleclaw init
     singleclaw remember "text"
     singleclaw run <skill_name> --input <file>
-    singleclaw reflect
+    singleclaw reflect [--since YYYY-MM-DD]
     singleclaw guardian-check <action>
+    singleclaw skill show <name>
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from typing import Optional
+
 import typer
 from rich.console import Console
+from rich.markdown import Markdown
 
 from singleclaw.dmn.journal import TaskJournal
 from singleclaw.dmn.memory import MemoryStore
@@ -21,12 +26,27 @@ from singleclaw.guardian.policy import GuardianPolicy
 from singleclaw.skills.registry import SkillRegistry
 from singleclaw.workspace.manager import WorkspaceManager
 
+# Number of recent memory items injected as context into skill execution (see ADR 0004).
+_MEMORY_CONTEXT_SIZE = 5
+
+# Date/time formats accepted by the --since option (tried in order).
+_SINCE_DATE_FORMATS = ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z")
+
 app = typer.Typer(
     name="singleclaw",
     help="SingleClaw DMN – single-agent personal AI work OS.",
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
+
+# ─── skill sub-app ────────────────────────────────────────────────────────────
+
+skill_app = typer.Typer(
+    name="skill",
+    help="Browse and display guidance skills.",
+    no_args_is_help=True,
+)
+app.add_typer(skill_app, name="skill")
 
 console = Console()
 
@@ -125,26 +145,43 @@ def run(
         journal.log(command="run", input_summary=skill_name, status="blocked", risk_level=risk)
         raise typer.Exit(code=1)
 
-    if decision == "REVIEW_REQUIRED" and not dry_run:
-        console.print(
-            f"[yellow]⚠ Guardian requires review for skill [cyan]{skill_name}[/cyan] "
-            f"(risk_level=[yellow]{risk}[/yellow]).\n"
-            "Re-run with [bold]--dry-run[/bold] to preview, or accept the risk by "
-            "re-running with [bold]--force[/bold] (not implemented in MVP).[/yellow]"
-        )
-        journal.log(command="run", input_summary=skill_name, status="review_required", risk_level=risk)
-        raise typer.Exit(code=1)
-
     from singleclaw.skills.runner import SkillRunner  # local import to keep startup fast
 
-    runner = SkillRunner(dry_run=dry_run or decision == "REVIEW_REQUIRED")
-    result = runner.execute(skill=skill, input_file=input_file)
+    # Retrieve recent memory context to inject into skill execution.
+    memory = MemoryStore(manager.workspace_dir)
+    memory_context = memory.recent(n=_MEMORY_CONTEXT_SIZE)
+
+    if decision == "REVIEW_REQUIRED" and not dry_run:
+        # Show a dry-run preview first, then ask the user to confirm.
+        preview_runner = SkillRunner(dry_run=True)
+        preview = preview_runner.execute(skill=skill, input_file=input_file)
+        console.print(preview)
+
+        if not typer.confirm("Proceed with execution?", default=False):
+            console.print("[yellow]Execution cancelled.[/yellow]")
+            journal.log(command="run", input_summary=skill_name, status="aborted", risk_level=risk)
+            raise typer.Exit(code=0)
+
+        # User confirmed – run for real.
+        runner = SkillRunner(dry_run=False)
+        result = runner.execute(skill=skill, input_file=input_file, memory_context=memory_context)
+        console.print(result)
+        journal.log(
+            command="run",
+            input_summary=f"skill={skill_name}",
+            status="success",
+            risk_level=risk,
+        )
+        return
+
+    runner = SkillRunner(dry_run=dry_run)
+    result = runner.execute(skill=skill, input_file=input_file, memory_context=memory_context)
 
     console.print(result)
     journal.log(
         command="run",
         input_summary=f"skill={skill_name}",
-        status="dry_run" if (dry_run or decision == "REVIEW_REQUIRED") else "success",
+        status="dry_run" if dry_run else "success",
         risk_level=risk,
     )
 
@@ -155,7 +192,13 @@ def run(
 
 
 @app.command()
-def reflect() -> None:
+def reflect(
+    since: Optional[str] = typer.Option(
+        None,
+        "--since",
+        help="Only show items from this date onwards (YYYY-MM-DD or ISO 8601).",
+    ),
+) -> None:
     """Summarise recent DMN memory items and task journal entries."""
     manager = WorkspaceManager()
     journal = TaskJournal(manager.workspace_dir)
@@ -164,9 +207,20 @@ def reflect() -> None:
         console.print("[yellow]Workspace not initialised – run [bold]singleclaw init[/bold] first.[/yellow]")
         raise typer.Exit(code=1)
 
+    since_dt: Optional[datetime] = None
+    if since is not None:
+        try:
+            since_dt = _parse_since(since)
+        except ValueError:
+            console.print(
+                f"[bold red]✘ Invalid --since value:[/bold red] {since!r}. "
+                "Use YYYY-MM-DD or ISO 8601 format."
+            )
+            raise typer.Exit(code=1)
+
     memory = MemoryStore(manager.workspace_dir)
     try:
-        summary = reflect_on_memory(memory=memory, journal=journal)
+        summary = reflect_on_memory(memory=memory, journal=journal, since=since_dt)
         console.print(summary)
         journal.log(command="reflect", status="success")
     except Exception as exc:  # noqa: BLE001
@@ -205,6 +259,59 @@ def guardian_check(
         status=decision.lower(),
         risk_level=risk_level,
     )
+
+
+# ─────────────────────────────────────────
+# skill show
+# ─────────────────────────────────────────
+
+
+@skill_app.command(name="show")
+def skill_show(
+    name: str = typer.Argument(..., help="Name of the guidance skill to display."),
+) -> None:
+    """Display the SKILL.md for a guidance skill."""
+    registry = SkillRegistry()
+    guidance = registry.get_guidance(name)
+
+    if guidance is None:
+        console.print(f"[bold red]✘ Unknown guidance skill:[/bold red] [cyan]{name}[/cyan]")
+        available = [g.name for g in registry.list_guidance()]
+        if available:
+            console.print(f"Available: {', '.join(sorted(available))}")
+        raise typer.Exit(code=1)
+
+    content = guidance.skill_md.read_text(encoding="utf-8")
+    console.print(Markdown(content))
+
+
+# ─────────────────────────────────────────
+# helpers
+# ─────────────────────────────────────────
+
+
+def _parse_since(value: str) -> datetime:
+    """Parse a ``--since`` date string into a timezone-aware ``datetime``.
+
+    Accepts ``YYYY-MM-DD`` or any ISO 8601 format.
+
+    Raises:
+        ValueError: when the string cannot be parsed.
+    """
+    # Try plain date first (YYYY-MM-DD)
+    for fmt in _SINCE_DATE_FORMATS:
+        try:
+            dt = datetime.strptime(value, fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except ValueError:
+            continue
+    # Last resort: fromisoformat (Python 3.11+ accepts full spec; 3.10 is partial)
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 if __name__ == "__main__":
